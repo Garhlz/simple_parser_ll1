@@ -44,9 +44,10 @@ fn main() {
     let test_inputs = [
         "let x = 1;",
         "x = 1 - 2 / 3;",
-        "if ( x < 10 or false ) { let y = 1; } else if ( x == 10 ) { let z; }",
+        "if ( not false and x >= 1 ) { } else if ( x == 10 or false ) { let z; }",
         "while ( x > 0 ) { x = x - 1; }",
         "{ let a = 1; let b; }",
+        "{ { } while ( x > 0 ) { if ( x == 1 ) { } } }",
     ];
 
     print_section("词法分析");

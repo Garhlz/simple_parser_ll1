@@ -375,4 +375,45 @@ mod tests {
         let tokens = tokenize("let x = 1 >= 2;").unwrap();
         assert_eq!(format_tokens(&tokens), "let id = num >= num ; #");
     }
+
+    #[test]
+    fn test_bool_ops_and_empty_block() {
+        let tokens = tokenize("if ( not false and x >= 1 ) { }").unwrap();
+        let kinds: Vec<Terminal> = tokens.iter().map(|t| t.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                Terminal::If,
+                Terminal::LParen,
+                Terminal::Not,
+                Terminal::False,
+                Terminal::And,
+                Terminal::Id,
+                Terminal::Ge,
+                Terminal::Num,
+                Terminal::RParen,
+                Terminal::LBrace,
+                Terminal::RBrace,
+                Terminal::End,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_unclosed_block_comment_error() {
+        let err = tokenize("let x = 1; /* unclosed").expect_err("tokenize should fail");
+        assert!(err.contains("多行注释未闭合"));
+    }
+
+    #[test]
+    fn test_illegal_character_error() {
+        let err = tokenize("let x = @;").expect_err("tokenize should fail");
+        assert!(err.contains("非法字符"));
+    }
+
+    #[test]
+    fn test_bare_exclamation_error() {
+        let err = tokenize("if ( !x ) { }").expect_err("tokenize should fail");
+        assert!(err.contains("单独的 '!' 不合法"));
+    }
 }

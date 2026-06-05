@@ -10,17 +10,21 @@ pub fn build_parse_table(
     let first_set_map = get_first_set(grammar);
     let follow_set_map = get_follow_set(grammar, &first_set_map);
 
+    // 对于每条产生式
     for prod in &grammar.productions {
+        // 求出 rhs 整体的first set
         let rhs_first = get_rhs_first(prod, &first_set_map);
 
         for term in rhs_first.iter().filter_map(|s| {
             if let Symbol::Terminal(term) = s {
+                // 断言rhs_first中的终结符，非空
                 Some(*term)
             } else {
                 None
             }
         }) {
             let key = (prod.lhs, term);
+            // 要求，如果LL1冲突需要报错
             if let Some(existing) = parse_table.get(&key) {
                 return Err(format!(
                     "LL(1) 冲突: 表项 ({}, {}) 同时对应 `{}` 和 `{}`",
@@ -30,6 +34,7 @@ pub fn build_parse_table(
             parse_table.insert(key, prod.clone());
         }
 
+        // 如果右侧整体的first集合中有epsilon
         if rhs_first.contains(&Symbol::Epsilon) {
             let lhs_follow = follow_set_map.get(&prod.lhs).unwrap();
             for term in lhs_follow.iter().filter_map(|s| {
@@ -53,6 +58,7 @@ pub fn build_parse_table(
     Ok(parse_table)
 }
 
+/// 求出rhs整体的first集合
 pub fn get_rhs_first(
     prod: &Production,
     first_set_map: &HashMap<NonTerminal, HashSet<Symbol>>,
@@ -72,14 +78,16 @@ pub fn get_rhs_first(
                         .filter(|s| !matches!(s, Symbol::Epsilon))
                         .cloned(),
                 );
-                // 可推出空，继续迭代
+                // 可推出空，可以继续迭代
                 if cur_first.contains(&Symbol::Epsilon) {
                     continue;
                 }
+                // 否则结束
                 break;
             }
         }
     }
+    // 如果rhs 都是可为空的非终结符， 整体first集插入epsilon
     let rhs_all_nullable = prod.rhs.iter().all(|s| matches!(s, Symbol::NonTerminal(nt) if first_set_map.get(nt).unwrap().contains(&Symbol::Epsilon)));
     if rhs_all_nullable {
         rhs_first.insert(Symbol::Epsilon);
@@ -126,7 +134,10 @@ pub fn get_first_set(grammar: &Grammar) -> HashMap<NonTerminal, HashSet<Symbol>>
                         Symbol::Epsilon => unreachable!(),
                     }
                 }
-                let rhs_all_nullable = prod.rhs.iter().all(|s| matches!(s, Symbol::NonTerminal(nt) if first_set_map.get(nt).unwrap().contains(&Symbol::Epsilon)));
+                let rhs_all_nullable = prod.rhs.iter().all(|s| {
+                    matches!(s, Symbol::NonTerminal(nt)
+                    if first_set_map.get(nt).unwrap().contains(&Symbol::Epsilon))
+                });
                 if rhs_all_nullable {
                     lhs_first.insert(Symbol::Epsilon);
                 }
