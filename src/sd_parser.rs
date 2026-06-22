@@ -17,6 +17,7 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    // 辅助函数
     fn new(tokens: &'a [Token]) -> Self {
         Self {
             tokens,
@@ -35,6 +36,11 @@ impl<'a> Parser<'a> {
         self.pos += 1;
     }
 
+    fn can_start_stmt(&self) -> bool {
+        self.peek()
+            .is_ok_and(|token| matches!(token.kind, Terminal::Id | Terminal::LBrace))
+    }
+
     /// 期待当前 token 是某种终结符，并且消费它
     fn expect_terminal(&mut self, kind: Terminal) -> Result<Token, String> {
         let token = self.peek()?.clone();
@@ -48,12 +54,47 @@ impl<'a> Parser<'a> {
         Ok(token)
     }
 
-    fn parse_assignment(&mut self) -> Result<(), String> {
+    // 实际 parser 逻辑
+
+    fn parse_program(&mut self) -> Result<(), String> {
+        self.parse_stmt_list()?;
+        self.expect_terminal(Terminal::End)?;
+        Ok(())
+    }
+
+    fn parse_stmt_list(&mut self) -> Result<(), String> {
+        while self.can_start_stmt() {
+            self.parse_stmt()?;
+        }
+        Ok(())
+    }
+
+    fn parse_stmt(&mut self) -> Result<(), String> {
+        match self.peek()?.kind {
+            Terminal::Id => self.parse_assignment_stmt(),
+            Terminal::LBrace => self.parse_block(),
+            _ => {
+                let token = self.peek()?;
+                Err(format!(
+                    "语法制导翻译错误: 非法语句起始符 `{}` (offset {})",
+                    token.kind, token.offset
+                ))
+            }
+        }
+    }
+
+    fn parse_block(&mut self) -> Result<(), String> {
+        self.expect_terminal(Terminal::LBrace)?;
+        self.parse_stmt_list()?;
+        self.expect_terminal(Terminal::RBrace)?;
+        Ok(())
+    }
+
+    fn parse_assignment_stmt(&mut self) -> Result<(), String> {
         let id = self.expect_terminal(Terminal::Id)?;
         self.expect_terminal(Terminal::Assign)?;
         let expr = self.parse_expr()?;
         self.expect_terminal(Terminal::Semicolon)?;
-        self.expect_terminal(Terminal::End)?;
 
         self.codegen.emit(Quad::Assign {
             src: expr.place,
@@ -245,13 +286,24 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub fn parse_assign(tokens: &[Token]) -> Result<CodeGen, String> {
+pub fn parse_program(tokens: &[Token]) -> Result<CodeGen, String> {
     if tokens.is_empty() {
         return Err("语法制导翻译错误: 输入 token 序列为空".into());
     }
 
     let mut parser = Parser::new(tokens);
-    parser.parse_assignment()?;
+    parser.parse_program()?;
+    Ok(parser.codegen)
+}
+
+pub fn parse_assignment(tokens: &[Token]) -> Result<CodeGen, String> {
+    if tokens.is_empty() {
+        return Err("语法制导翻译错误: 输入 token 序列为空".into());
+    }
+
+    let mut parser = Parser::new(tokens);
+    parser.parse_assignment_stmt()?;
+    parser.expect_terminal(Terminal::End)?;
     Ok(parser.codegen)
 }
 
@@ -270,12 +322,12 @@ pub fn parse_bool(tokens: &[Token]) -> Result<BoolParseOutput, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_assign, parse_bool};
+    use super::{parse_assignment, parse_bool, parse_program};
     use crate::lexer::tokenize;
 
     fn assign_quad_lines(input: &str) -> Vec<String> {
         let tokens = tokenize(input).expect("tokenize should succeed");
-        let codegen = parse_assign(&tokens).expect("parse assignment should succeed");
+        let codegen = parse_assignment(&tokens).expect("parse assignment should succeed");
         codegen
             .quads
             .iter()
@@ -293,6 +345,16 @@ mod tests {
             .map(ToString::to_string)
             .collect::<Vec<_>>();
         (quads, output.attr.tc, output.attr.fc)
+    }
+
+    fn program_quad_lines(input: &str) -> Vec<String> {
+        let tokens = tokenize(input).expect("tokenize should succeed");
+        let codegen = parse_program(&tokens).expect("parse program should succeed");
+        codegen
+            .quads
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
     }
 
     #[test]
@@ -327,9 +389,48 @@ mod tests {
     #[test]
     fn test_parse_assignment_error() {
         let tokens = tokenize("a = b + ;").expect("tokenize should succeed");
-        let err = parse_assign(&tokens).expect_err("parse should fail");
+        let err = parse_assignment(&tokens).expect_err("parse should fail");
 
         assert!(err.contains("非法表达式起始符"));
+    }
+
+    #[test]
+    fn test_parse_assignment_rejects_trailing_statement() {
+        let tokens = tokenize("a = b + c; x = a * d;").expect("tokenize should succeed");
+        let err = parse_assignment(&tokens).expect_err("parse should fail");
+
+        assert!(err.contains("期待 `#`"));
+    }
+
+    #[test]
+    fn test_parse_program_assignment_list() {
+        assert_eq!(
+            program_quad_lines("a = b + c; x = a * d;"),
+            vec![
+                "(+, b, c, t1)",
+                "(=, t1, _, a)",
+                "(*, a, d, t2)",
+                "(=, t2, _, x)",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_program_blocks() {
+        assert_eq!(
+            program_quad_lines("{ a = b + c; { x = a * d; } }"),
+            vec![
+                "(+, b, c, t1)",
+                "(=, t1, _, a)",
+                "(*, a, d, t2)",
+                "(=, t2, _, x)",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_program_empty_block() {
+        assert_eq!(program_quad_lines("{ }"), Vec::<String>::new());
     }
 
     #[test]

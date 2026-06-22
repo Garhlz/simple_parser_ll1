@@ -5,7 +5,7 @@ mod symbol;
 
 use codegen::{format_bool_result, format_quads};
 use lexer::{format_tokens, tokenize};
-use sd_parser::{parse_assign, parse_bool};
+use sd_parser::{parse_assignment, parse_bool, parse_program};
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -23,6 +23,7 @@ fn main() {
 
     match mode.as_str() {
         "assign" => run_assign(&input),
+        "program" => run_program(&input),
         "bool" => run_bool(&input),
         "tokens" => run_tokens(&input),
         _ => {
@@ -40,7 +41,14 @@ fn run_tokens(input: &str) {
 }
 
 fn run_assign(input: &str) {
-    match tokenize(input).and_then(|tokens| parse_assign(&tokens)) {
+    match tokenize(input).and_then(|tokens| parse_assignment(&tokens)) {
+        Ok(codegen) => print!("{}", format_quads(&codegen)),
+        Err(err) => eprintln!("{err}"),
+    }
+}
+
+fn run_program(input: &str) {
+    match tokenize(input).and_then(|tokens| parse_program(&tokens)) {
         Ok(codegen) => print!("{}", format_quads(&codegen)),
         Err(err) => eprintln!("{err}"),
     }
@@ -56,6 +64,7 @@ fn run_bool(input: &str) {
 fn print_usage() {
     println!("用法:");
     println!("  cargo run -- assign \"a = b + c * e / g;\"");
+    println!("  cargo run -- program \"a = b + c; x = a * d;\"");
     println!("  cargo run -- bool \"a < b\"");
     println!("  cargo run -- tokens \"a = b + c * e / g;\"");
 }
