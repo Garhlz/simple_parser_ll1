@@ -252,7 +252,8 @@ mod tests {
 
     #[test]
     fn test_if_else() {
-        let tokens = tokenize("if ( x < 1 or false ) { let y = 1; } else if ( x == 2 ) { let z; }").unwrap();
+        let tokens =
+            tokenize("if ( x < 1 or false ) { let y = 1; } else if ( x == 2 ) { let z; }").unwrap();
         let kinds: Vec<Terminal> = tokens.iter().map(|t| t.kind).collect();
         assert_eq!(
             kinds,
