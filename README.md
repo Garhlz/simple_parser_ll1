@@ -21,7 +21,7 @@
 * `src/symbol.rs`：终结符定义；
 * `src/rd_parser.rs`：递归下降 / Pratt 分析实现，作为后续 `sd_parser.rs` 的参考。
 * `src/codegen.rs`：类型安全的四元组表示、临时变量和回填工具。
-* `src/sd_parser.rs`：支持算术赋值语句、关系表达式、布尔括号分组和 `and` / `or` / `not` 短路翻译。
+* `src/sd_parser.rs`：支持算术赋值语句、语句列表、代码块、关系表达式、布尔括号分组和 `and` / `or` / `not` 短路翻译。
 
 已移除旧实验中不再需要的 LL(1) 展示流程，包括 FIRST/FOLLOW、预测分析表和表驱动 parser。
 
@@ -41,6 +41,22 @@ Quadruples:
 1: (/, t1, g, t2)
 2: (+, b, t2, t3)
 3: (=, t3, _, a)
+```
+
+生成语句列表或代码块的四元组：
+
+```bash
+cargo run -- program "{ a = b + c; x = a * d; }"
+```
+
+示例输出：
+
+```text
+Quadruples:
+0: (+, b, c, t1)
+1: (=, t1, _, a)
+2: (*, a, d, t2)
+3: (=, t2, _, x)
 ```
 
 查看 tokenizer 输出：

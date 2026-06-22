@@ -11,4 +11,5 @@
 * [x] 扩展 `src/sd_parser.rs`，实现 `and`、`or`、`not` 短路翻译。
 * [x] 为算术赋值、括号、布尔关系、`and`、`or`、`not` 补充测试。
 * [x] 支持布尔表达式括号分组，如 `(a < b or c > d) and e != f`。
+* [x] 支持语句列表和代码块，接入 `main.rs` 的 `program` 模式。
 * [ ] 选做：支持 `if` / `if-else` 条件语句回填。

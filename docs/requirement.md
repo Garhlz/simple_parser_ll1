@@ -327,6 +327,7 @@ B.FC = B1.TC
 ```bash
 cargo run -- assign "a = b + c * e / g;"
 cargo run -- bool "a < b and c > d"
+cargo run -- program "{ a = b + c; x = a * d; }"
 ```
 
 也可读取一行输入，并根据内容判断是赋值语句还是布尔表达式。
@@ -377,6 +378,21 @@ a = (b + c) * d;
 (+, b, c, t1)
 (*, t1, d, t2)
 (=, t2, _, a)
+```
+
+### 语句列表和代码块
+
+```text
+{ a = b + c; x = a * d; }
+```
+
+期望：
+
+```text
+(+, b, c, t1)
+(=, t1, _, a)
+(*, a, d, t2)
+(=, t2, _, x)
 ```
 
 ### 布尔关系
