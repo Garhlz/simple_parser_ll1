@@ -20,21 +20,92 @@
 * `src/lexer.rs`：tokenizer，支持实验所需 token；
 * `src/symbol.rs`：终结符定义；
 * `src/rd_parser.rs`：递归下降 / Pratt 分析实现，作为后续 `sd_parser.rs` 的参考。
+* `src/codegen.rs`：类型安全的四元组表示、临时变量和回填工具。
+* `src/sd_parser.rs`：支持算术赋值语句、关系表达式、布尔括号分组和 `and` / `or` / `not` 短路翻译。
 
 已移除旧实验中不再需要的 LL(1) 展示流程，包括 FIRST/FOLLOW、预测分析表和表驱动 parser。
 
 ## 运行
 
-当前 `main.rs` 仅保留 tokenizer 预览入口，后续会接入中间代码生成：
+生成算术赋值语句四元组：
 
 ```bash
-cargo run -- "a = b + c * e / g;"
+cargo run -- assign "a = b + c * e / g;"
 ```
 
 示例输出：
 
 ```text
-id = id + id * id / id ; #
+Quadruples:
+0: (*, c, e, t1)
+1: (/, t1, g, t2)
+2: (+, b, t2, t3)
+3: (=, t3, _, a)
+```
+
+查看 tokenizer 输出：
+
+```bash
+cargo run -- tokens "a = b + c * e / g;"
+```
+
+生成布尔表达式跳转四元组：
+
+```bash
+cargo run -- bool "a < b"
+```
+
+示例输出：
+
+```text
+Quadruples:
+0: (j<, a, b, _)
+1: (j, _, _, _)
+
+TC = [0]
+FC = [1]
+```
+
+短路布尔表达式示例：
+
+```bash
+cargo run -- bool "a < b or c > d and e != f"
+```
+
+示例输出：
+
+```text
+Quadruples:
+0: (j<, a, b, _)
+1: (j, _, _, 2)
+2: (j>, c, d, 4)
+3: (j, _, _, _)
+4: (j!=, e, f, _)
+5: (j, _, _, _)
+
+TC = [0, 4]
+FC = [3, 5]
+```
+
+布尔括号分组示例：
+
+```bash
+cargo run -- bool "(a < b or c > d) and e != f"
+```
+
+示例输出：
+
+```text
+Quadruples:
+0: (j<, a, b, 4)
+1: (j, _, _, 2)
+2: (j>, c, d, 4)
+3: (j, _, _, _)
+4: (j!=, e, f, _)
+5: (j, _, _, _)
+
+TC = [4]
+FC = [3, 5]
 ```
 
 ## 测试
@@ -45,8 +116,6 @@ cargo test
 
 ## 后续模块
 
-计划新增：
+计划继续新增：
 
-* `src/codegen.rs`：四元组、临时变量、`makelist`、`merge`、`backpatch`；
-* `src/sd_parser.rs`：语法制导翻译 parser；
-* `main.rs`：命令行入口，输出赋值语句和布尔表达式四元组。
+* 条件语句回填作为选做扩展。

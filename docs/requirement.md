@@ -137,14 +137,32 @@ src/
 
 ## 核心数据结构
 
-四元组：
+普通操作数：
 
 ```rust
-pub struct Quad {
-    pub op: String,
-    pub arg1: String,
-    pub arg2: String,
-    pub result: String,
+pub enum Operand {
+    Name(String),
+    Empty,
+}
+```
+
+跳转目标：
+
+```rust
+pub enum JumpTarget {
+    Pending,
+    Target(usize),
+}
+```
+
+四元组内部使用类型安全表示，输出时仍格式化为 `(op, arg1, arg2, result)`：
+
+```rust
+pub enum Quad {
+    Binary { op: String, left: Operand, right: Operand, dest: Operand },
+    Assign { src: Operand, dest: Operand },
+    Jump { target: JumpTarget },
+    JumpIf { relop: String, left: Operand, right: Operand, target: JumpTarget },
 }
 ```
 
@@ -152,7 +170,7 @@ pub struct Quad {
 
 ```rust
 pub struct ExprAttr {
-    pub place: String,
+    pub place: Operand,
 }
 ```
 
@@ -390,6 +408,30 @@ a < b or c > d
 
 * `a < b` 为真时直接进入真链；
 * `a < b` 为假时继续判断 `c > d`。
+
+### 布尔 not
+
+```text
+not a < b
+```
+
+要求交换内部布尔表达式的真链和假链。
+
+### 布尔优先级
+
+```text
+a < b or c > d and e != f
+```
+
+要求按 `not` 高于 `and`、`and` 高于 `or` 的优先级生成短路跳转四元组。
+
+### 布尔括号
+
+```text
+(a < b or c > d) and e != f
+```
+
+要求括号内布尔表达式先作为整体翻译，再与外层布尔运算组合。
 
 ## 验收标准
 
