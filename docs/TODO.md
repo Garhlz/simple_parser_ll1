@@ -14,3 +14,4 @@
 * [x] 支持语句列表和代码块，接入 `main.rs` 的 `program` 模式。
 * [x] 选做：支持 `if` / `if-else` 条件语句回填。
 * [x] 扩展：支持 `while` 循环语句回填。
+* [x] 移除早期只生成语法树的 `rd_parser.rs`，保留 `sd_parser.rs` 作为 codegen 主实现。

@@ -17,7 +17,7 @@
 
 * `lexer.rs`
 * `symbol.rs`
-* `rd_parser.rs` 中的递归下降 / Pratt 表达式分析结构
+* `sd_parser.rs` 中的递归下降表达式分析与语法制导翻译结构
 
 不要从零重写 tokenizer。现有 tokenizer 已支持实验所需的大部分 token：
 
@@ -141,12 +141,11 @@ src/
 ├── main.rs
 ├── lexer.rs          # 复用
 ├── symbol.rs         # 复用
-├── rd_parser.rs      # 保留参考：递归下降 / Pratt 表达式分析结构
-├── codegen.rs        # 新增：四元组、临时变量、回填
-├── sd_parser.rs      # 新增：语法制导翻译 parser
+├── codegen.rs        # 四元组、临时变量、回填
+├── sd_parser.rs      # 语法制导翻译 parser
 ```
 
-`sd_parser.rs` 可参考 `rd_parser.rs`，但核心目标从生成语法树改为生成中间代码。
+当前实现以 `sd_parser.rs` 为主，不再保留早期只生成语法树的 `rd_parser.rs`。
 原实验中的 `grammar.rs`、`first_follow.rs`、`parser.rs` 属于 LL(1) 文法展示、FIRST/FOLLOW 和预测分析表流程，当前 codegen 实验不再保留。
 
 ## 核心数据结构

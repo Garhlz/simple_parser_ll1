@@ -546,6 +546,48 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_program_nested_control_flow() {
+        assert_eq!(
+            program_quad_lines("while (a < b) { if (c != d) { x = x + 1; } }"),
+            vec![
+                "(j<, a, b, 2)",
+                "(j, _, _, 7)",
+                "(j!=, c, d, 4)",
+                "(j, _, _, 6)",
+                "(+, x, 1, t1)",
+                "(=, t1, _, x)",
+                "(j, _, _, 0)",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_program_if_else_with_following_stmt() {
+        assert_eq!(
+            program_quad_lines("if (a < b) { x = y + z; } else { x = y - z; } k = x * 2;"),
+            vec![
+                "(j<, a, b, 2)",
+                "(j, _, _, 5)",
+                "(+, y, z, t1)",
+                "(=, t1, _, x)",
+                "(j, _, _, 7)",
+                "(-, y, z, t2)",
+                "(=, t2, _, x)",
+                "(*, x, 2, t3)",
+                "(=, t3, _, k)",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_program_missing_rbrace_error() {
+        let tokens = tokenize("{ a = b + c;").expect("tokenize should succeed");
+        let err = parse_program(&tokens).expect_err("parse should fail");
+
+        assert!(err.contains("期待 `}`"));
+    }
+
+    #[test]
     fn test_parse_bool_relation() {
         let (quads, tc, fc) = bool_quads_and_attr("a < b");
 

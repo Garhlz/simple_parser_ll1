@@ -1,17 +1,10 @@
 # simple_parser_ll1
 
-编译原理实验项目，当前分支 `simple_codegen` 面向实验五：语法制导翻译与中间代码生成。
+编译原理实验项目，当前分支 `simple_codegen` 面向实验五：语法制导翻译与中间代码生成。详细要求见 [docs/requirement.md](docs/requirement.md)，当前待办见 [docs/TODO.md](docs/TODO.md)。
 
-## 当前目标
+## 功能概览
 
-在已有词法分析和递归下降 / Pratt 表达式分析基础上，实现一个小型中间代码生成程序，支持：
-
-* 算术表达式与赋值语句四元组生成；
-* 布尔表达式跳转四元组生成；
-* `TC` / `FC` 链与回填机制；
-* 条件语句四元组生成作为选做扩展。
-
-详细要求见 [docs/requirement.md](docs/requirement.md)，当前待办见 [docs/TODO.md](docs/TODO.md)。
+程序将简化 Simple 语言片段翻译为四元组中间代码。当前支持算术赋值、语句列表、嵌套代码块、`if` / `if-else` / `while` 控制流，以及带短路求值的布尔表达式；布尔表达式会输出 `TC` / `FC` 链，控制流语句会使用回填机制补全跳转目标。
 
 ## 当前状态
 
@@ -19,31 +12,16 @@
 
 * `src/lexer.rs`：tokenizer，支持实验所需 token；
 * `src/symbol.rs`：终结符定义；
-* `src/rd_parser.rs`：递归下降 / Pratt 分析实现，作为后续 `sd_parser.rs` 的参考。
 * `src/codegen.rs`：类型安全的四元组表示、临时变量和回填工具。
 * `src/sd_parser.rs`：支持算术赋值语句、语句列表、代码块、`if` / `if-else` / `while` 控制流、关系表达式、布尔括号分组和 `and` / `or` / `not` 短路翻译。
 
-已移除旧实验中不再需要的 LL(1) 展示流程，包括 FIRST/FOLLOW、预测分析表和表驱动 parser。
+已移除旧实验中不再需要的 LL(1) 展示流程和早期语法树 parser，包括 FIRST/FOLLOW、预测分析表、表驱动 parser 和 `rd_parser.rs`。
 
 ## 运行
 
-生成算术赋值语句四元组：
+### 主入口
 
-```bash
-cargo run -- assign "a = b + c * e / g;"
-```
-
-示例输出：
-
-```text
-Quadruples:
-0: (*, c, e, t1)
-1: (/, t1, g, t2)
-2: (+, b, t2, t3)
-3: (=, t3, _, a)
-```
-
-生成语句列表或代码块的四元组：
+生成 Simple 小程序四元组：
 
 ```bash
 cargo run -- program "{ a = b + c; x = a * d; }"
@@ -59,13 +37,44 @@ Quadruples:
 3: (=, t2, _, x)
 ```
 
-查看 tokenizer 输出：
+控制流语句示例：
 
 ```bash
-cargo run -- tokens "a = b + c * e / g;"
+cargo run -- program "if (a < b) { x = y + z; } else { x = y - z; }"
 ```
 
-生成布尔表达式跳转四元组：
+示例输出：
+
+```text
+Quadruples:
+0: (j<, a, b, 2)
+1: (j, _, _, 5)
+2: (+, y, z, t1)
+3: (=, t1, _, x)
+4: (j, _, _, 7)
+5: (-, y, z, t2)
+6: (=, t2, _, x)
+```
+
+### 实验演示
+
+生成单条算术赋值语句四元组：
+
+```bash
+cargo run -- assign "a = b + c * e / g;"
+```
+
+示例输出：
+
+```text
+Quadruples:
+0: (*, c, e, t1)
+1: (/, t1, g, t2)
+2: (+, b, t2, t3)
+3: (=, t3, _, a)
+```
+
+生成布尔表达式跳转四元组和 `TC` / `FC`：
 
 ```bash
 cargo run -- bool "a < b"
@@ -124,23 +133,16 @@ TC = [4]
 FC = [3, 5]
 ```
 
-控制流语句示例：
+### 调试
 
 ```bash
-cargo run -- program "if (a < b) { x = y + z; } else { x = y - z; }"
+cargo run -- tokens "a = b + c;"
 ```
 
 示例输出：
 
 ```text
-Quadruples:
-0: (j<, a, b, 2)
-1: (j, _, _, 5)
-2: (+, y, z, t1)
-3: (=, t1, _, x)
-4: (j, _, _, 7)
-5: (-, y, z, t2)
-6: (=, t2, _, x)
+id = id + id ; #
 ```
 
 ## 测试
