@@ -37,8 +37,12 @@ impl<'a> Parser<'a> {
     }
 
     fn can_start_stmt(&self) -> bool {
-        self.peek()
-            .is_ok_and(|token| matches!(token.kind, Terminal::Id | Terminal::LBrace))
+        self.peek().is_ok_and(|token| {
+            matches!(
+                token.kind,
+                Terminal::Id | Terminal::LBrace | Terminal::If | Terminal::While
+            )
+        })
     }
 
     /// 期待当前 token 是某种终结符，并且消费它
@@ -73,6 +77,8 @@ impl<'a> Parser<'a> {
         match self.peek()?.kind {
             Terminal::Id => self.parse_assignment_stmt(),
             Terminal::LBrace => self.parse_block(),
+            Terminal::If => self.parse_if_stmt(),
+            Terminal::While => self.parse_while_stmt(),
             _ => {
                 let token = self.peek()?;
                 Err(format!(
@@ -100,6 +106,69 @@ impl<'a> Parser<'a> {
             src: expr.place,
             dest: Operand::name(id.lexeme),
         });
+        Ok(())
+    }
+
+    fn parse_if_stmt(&mut self) -> Result<(), String> {
+        self.expect_terminal(Terminal::If)?;
+        self.expect_terminal(Terminal::LParen)?;
+        let attr = self.parse_or()?;
+        self.expect_terminal(Terminal::RParen)?;
+
+        let then_start = self.codegen.next_quad();
+
+        // 真链回填
+        self.codegen.backpatch(&attr.tc, then_start)?;
+
+        self.parse_block()?;
+
+        // 有else部分
+        if matches!(self.peek()?.kind, Terminal::Else) {
+            let jump_index = self.codegen.next_quad();
+            self.codegen.emit(Quad::Jump {
+                target: JumpTarget::Pending,
+            });
+            // if 执行完之后无条件跳转到else body之后
+            self.expect_terminal(Terminal::Else)?;
+            let else_body_start = self.codegen.next_quad();
+            self.codegen.backpatch(&attr.fc, else_body_start)?;
+
+            self.parse_block()?;
+
+            // then body可以直接跳转到最后的位置
+            let after_else = self.codegen.next_quad();
+            self.codegen.backpatch(&[jump_index], after_else)?;
+        } else {
+            let after_then = self.codegen.next_quad();
+            // 回填未确定的假链
+            self.codegen.backpatch(&attr.fc, after_then)?;
+        }
+
+        Ok(())
+    }
+
+    fn parse_while_stmt(&mut self) -> Result<(), String> {
+        self.expect_terminal(Terminal::While)?;
+        self.expect_terminal(Terminal::LParen)?;
+
+        let loop_begin = self.codegen.next_quad();
+
+        let attr = self.parse_or()?;
+        self.expect_terminal(Terminal::RParen)?;
+
+        let then_body_start = self.codegen.next_quad();
+        self.codegen.backpatch(&attr.tc, then_body_start)?;
+
+        self.parse_block()?;
+
+        // 无条件跳转回到 while 开始的地方
+        self.codegen.emit(Quad::Jump {
+            target: JumpTarget::Target(loop_begin),
+        });
+
+        let then_body_end = self.codegen.next_quad();
+        self.codegen.backpatch(&attr.fc, then_body_end)?;
+
         Ok(())
     }
 
@@ -431,6 +500,49 @@ mod tests {
     #[test]
     fn test_parse_program_empty_block() {
         assert_eq!(program_quad_lines("{ }"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_parse_program_if() {
+        assert_eq!(
+            program_quad_lines("if (a < b) { x = y + z; }"),
+            vec![
+                "(j<, a, b, 2)",
+                "(j, _, _, 4)",
+                "(+, y, z, t1)",
+                "(=, t1, _, x)",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_program_if_else() {
+        assert_eq!(
+            program_quad_lines("if (a < b) { x = y + z; } else { x = y - z; }"),
+            vec![
+                "(j<, a, b, 2)",
+                "(j, _, _, 5)",
+                "(+, y, z, t1)",
+                "(=, t1, _, x)",
+                "(j, _, _, 7)",
+                "(-, y, z, t2)",
+                "(=, t2, _, x)",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_program_while() {
+        assert_eq!(
+            program_quad_lines("while (a < b) { a = a + 1; }"),
+            vec![
+                "(j<, a, b, 2)",
+                "(j, _, _, 5)",
+                "(+, a, 1, t1)",
+                "(=, t1, _, a)",
+                "(j, _, _, 0)",
+            ]
+        );
     }
 
     #[test]
