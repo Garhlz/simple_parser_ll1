@@ -24,6 +24,7 @@
 * 标识符、数字
 * `+ - * /`
 * `= == != < <= > >=`
+* `true false`
 * `and or not`
 * `if else while`
 * 括号、花括号、分号
@@ -64,6 +65,8 @@ a < b
 a < b and c > d
 a < b or c > d
 not a < b
+not false and x >= 1
+(a + b) < (c * d)
 (a < b or c > d) and e != f
 ```
 
@@ -141,6 +144,7 @@ src/
 ├── main.rs
 ├── lexer.rs          # 复用
 ├── symbol.rs         # 复用
+├── error.rs          # 统一错误类型
 ├── codegen.rs        # 四元组、临时变量、回填
 ├── sd_parser.rs      # 语法制导翻译 parser
 ```
