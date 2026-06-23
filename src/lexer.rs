@@ -1,4 +1,7 @@
-use crate::symbol::Terminal;
+use crate::{
+    error::{CompileError, CompileResult},
+    symbol::Terminal,
+};
 
 /// Token 结构：词法分析器产出的最小单元
 #[derive(Debug, Clone, PartialEq)]
@@ -21,7 +24,7 @@ fn push_token(tokens: &mut Vec<Token>, kind: Terminal, lexeme: String, offset: u
 }
 
 /// 将源码字符串转换为 Token 序列，末尾自动添加 End 标记。
-pub fn tokenize(src: &str) -> Result<Vec<Token>, String> {
+pub fn tokenize(src: &str) -> CompileResult<Vec<Token>> {
     let mut chars = src.chars().peekable();
     let mut buf = String::new();
     let mut tokens = Vec::new();
@@ -71,9 +74,9 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, String> {
                 // 数字后面不能紧跟字母（如 123abc）
                 if let Some(next_ch) = chars.peek().copied() {
                     if next_ch.is_ascii_alphabetic() || next_ch == '_' {
-                        return Err(format!(
-                            "词法错误 (offset {offset}): 数字后面不能紧跟字母 '{}'",
-                            next_ch
+                        return Err(CompileError::lex(
+                            offset,
+                            format!("数字后面不能紧跟字母 '{}'", next_ch),
                         ));
                     }
                 }
@@ -117,7 +120,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, String> {
                         prev = next_ch;
                     }
                     if !closed {
-                        return Err(format!("词法错误 (offset {start}): 多行注释未闭合"));
+                        return Err(CompileError::lex(start, "多行注释未闭合"));
                     }
                 } else {
                     push_token(&mut tokens, Terminal::Slash, "/".into(), start);
@@ -138,8 +141,9 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, String> {
                     offset += '='.len_utf8();
                     push_token(&mut tokens, Terminal::Ne, "!=".into(), start);
                 } else {
-                    return Err(format!(
-                        "词法错误 (offset {start}): 单独的 '!' 不合法，请使用 'not' 或 '!='"
+                    return Err(CompileError::lex(
+                        start,
+                        "单独的 '!' 不合法，请使用 'not' 或 '!='",
                     ));
                 }
             }
@@ -184,7 +188,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, String> {
 
             // ── 非法字符 ──
             other => {
-                return Err(format!("词法错误 (offset {start}): 非法字符 '{}'", other));
+                return Err(CompileError::lex(start, format!("非法字符 '{}'", other)));
             }
         }
     }
@@ -209,7 +213,7 @@ pub fn format_tokens(tokens: &[Token]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::symbol::Terminal;
+    use crate::{error::CompileError, symbol::Terminal};
 
     use super::*;
 
@@ -403,18 +407,32 @@ mod tests {
     #[test]
     fn test_unclosed_block_comment_error() {
         let err = tokenize("let x = 1; /* unclosed").expect_err("tokenize should fail");
-        assert!(err.contains("多行注释未闭合"));
+
+        assert_eq!(
+            err,
+            CompileError::Lex {
+                offset: 11,
+                message: "多行注释未闭合".into(),
+            }
+        );
     }
 
     #[test]
     fn test_illegal_character_error() {
         let err = tokenize("let x = @;").expect_err("tokenize should fail");
-        assert!(err.contains("非法字符"));
+
+        assert_eq!(
+            err,
+            CompileError::Lex {
+                offset: 8,
+                message: "非法字符 '@'".into(),
+            }
+        );
     }
 
     #[test]
     fn test_bare_exclamation_error() {
         let err = tokenize("if ( !x ) { }").expect_err("tokenize should fail");
-        assert!(err.contains("单独的 '!' 不合法"));
+        assert!(err.to_string().contains("单独的 '!' 不合法"));
     }
 }

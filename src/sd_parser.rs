@@ -1,5 +1,6 @@
 use crate::{
     codegen::{BoolAttr, CodeGen, ExprAttr, JumpTarget, Operand, Quad},
+    error::{CompileError, CompileResult},
     lexer::Token,
     symbol::Terminal,
 };
@@ -26,10 +27,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn peek(&self) -> Result<&Token, String> {
+    fn peek(&self) -> CompileResult<&Token> {
         self.tokens
             .get(self.pos)
-            .ok_or_else(|| "语法制导翻译错误: 输入意外结束".into())
+            .ok_or_else(|| CompileError::parse_without_offset("输入意外结束"))
     }
 
     fn advance(&mut self) {
@@ -46,12 +47,12 @@ impl<'a> Parser<'a> {
     }
 
     /// 期待当前 token 是某种终结符，并且消费它
-    fn expect_terminal(&mut self, kind: Terminal) -> Result<Token, String> {
+    fn expect_terminal(&mut self, kind: Terminal) -> CompileResult<Token> {
         let token = self.peek()?.clone();
         if token.kind != kind {
-            return Err(format!(
-                "语法制导翻译错误: 期待 `{}`, 实际读到 `{}` (offset {})",
-                kind, token.kind, token.offset
+            return Err(CompileError::parse(
+                token.offset,
+                format!("期待 `{}`, 实际读到 `{}`", kind, token.kind),
             ));
         }
         self.advance();
@@ -60,20 +61,20 @@ impl<'a> Parser<'a> {
 
     // 实际 parser 逻辑
 
-    fn parse_program(&mut self) -> Result<(), String> {
+    fn parse_program(&mut self) -> CompileResult<()> {
         self.parse_stmt_list()?;
         self.expect_terminal(Terminal::End)?;
         Ok(())
     }
 
-    fn parse_stmt_list(&mut self) -> Result<(), String> {
+    fn parse_stmt_list(&mut self) -> CompileResult<()> {
         while self.can_start_stmt() {
             self.parse_stmt()?;
         }
         Ok(())
     }
 
-    fn parse_stmt(&mut self) -> Result<(), String> {
+    fn parse_stmt(&mut self) -> CompileResult<()> {
         match self.peek()?.kind {
             Terminal::Id => self.parse_assignment_stmt(),
             Terminal::LBrace => self.parse_block(),
@@ -81,22 +82,22 @@ impl<'a> Parser<'a> {
             Terminal::While => self.parse_while_stmt(),
             _ => {
                 let token = self.peek()?;
-                Err(format!(
-                    "语法制导翻译错误: 非法语句起始符 `{}` (offset {})",
-                    token.kind, token.offset
+                Err(CompileError::parse(
+                    token.offset,
+                    format!("非法语句起始符 `{}`", token.kind),
                 ))
             }
         }
     }
 
-    fn parse_block(&mut self) -> Result<(), String> {
+    fn parse_block(&mut self) -> CompileResult<()> {
         self.expect_terminal(Terminal::LBrace)?;
         self.parse_stmt_list()?;
         self.expect_terminal(Terminal::RBrace)?;
         Ok(())
     }
 
-    fn parse_assignment_stmt(&mut self) -> Result<(), String> {
+    fn parse_assignment_stmt(&mut self) -> CompileResult<()> {
         let id = self.expect_terminal(Terminal::Id)?;
         self.expect_terminal(Terminal::Assign)?;
         let expr = self.parse_expr()?;
@@ -109,7 +110,7 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn parse_if_stmt(&mut self) -> Result<(), String> {
+    fn parse_if_stmt(&mut self) -> CompileResult<()> {
         self.expect_terminal(Terminal::If)?;
         self.expect_terminal(Terminal::LParen)?;
         let attr = self.parse_or()?;
@@ -147,7 +148,7 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn parse_while_stmt(&mut self) -> Result<(), String> {
+    fn parse_while_stmt(&mut self) -> CompileResult<()> {
         self.expect_terminal(Terminal::While)?;
         self.expect_terminal(Terminal::LParen)?;
 
@@ -172,14 +173,14 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn parse_bool_expr(&mut self) -> Result<BoolAttr, String> {
+    fn parse_bool_expr(&mut self) -> CompileResult<BoolAttr> {
         let attr = self.parse_or()?;
         self.expect_terminal(Terminal::End)?;
         Ok(attr)
     }
 
     // or 优先级最低，在最上层调用
-    fn parse_or(&mut self) -> Result<BoolAttr, String> {
+    fn parse_or(&mut self) -> CompileResult<BoolAttr> {
         let mut left = self.parse_and()?;
 
         // 可以连接多个短路 or
@@ -200,7 +201,7 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    fn parse_and(&mut self) -> Result<BoolAttr, String> {
+    fn parse_and(&mut self) -> CompileResult<BoolAttr> {
         let mut left = self.parse_not()?;
 
         // 可以连接多个短路 and
@@ -221,7 +222,7 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    fn parse_not(&mut self) -> Result<BoolAttr, String> {
+    fn parse_not(&mut self) -> CompileResult<BoolAttr> {
         if matches!(self.peek()?.kind, Terminal::Not) {
             self.expect_terminal(Terminal::Not)?;
             // 递归调用自己，可以连续使用多个not
@@ -237,18 +238,63 @@ impl<'a> Parser<'a> {
     }
 
     // 支持括号优先级
-    fn parse_bool_atom(&mut self) -> Result<BoolAttr, String> {
-        if matches!(self.peek()?.kind, Terminal::LParen) {
-            self.expect_terminal(Terminal::LParen)?;
-            let attr = self.parse_or()?;
-            self.expect_terminal(Terminal::RParen)?;
-            Ok(attr)
-        } else {
-            self.parse_relation()
+    fn parse_bool_atom(&mut self) -> CompileResult<BoolAttr> {
+        match self.peek()?.kind {
+            Terminal::True => {
+                self.expect_terminal(Terminal::True)?;
+                let jump = self.codegen.emit(Quad::Jump {
+                    target: JumpTarget::Pending,
+                });
+                Ok(BoolAttr {
+                    tc: CodeGen::makelist(jump),
+                    fc: vec![],
+                })
+            }
+            Terminal::False => {
+                self.expect_terminal(Terminal::False)?;
+                let jump = self.codegen.emit(Quad::Jump {
+                    target: JumpTarget::Pending,
+                });
+                Ok(BoolAttr {
+                    tc: vec![],
+                    fc: CodeGen::makelist(jump),
+                })
+            }
+            Terminal::LParen if self.lparen_starts_relation() => self.parse_relation(),
+            Terminal::LParen => {
+                self.expect_terminal(Terminal::LParen)?;
+                let attr = self.parse_or()?;
+                self.expect_terminal(Terminal::RParen)?;
+                Ok(attr)
+            }
+            _ => self.parse_relation(),
         }
     }
 
-    fn parse_relation(&mut self) -> Result<BoolAttr, String> {
+    fn lparen_starts_relation(&self) -> bool {
+        let mut depth = 0usize;
+
+        for index in self.pos..self.tokens.len() {
+            match self.tokens[index].kind {
+                Terminal::LParen => depth += 1,
+                Terminal::RParen => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return self
+                            .tokens
+                            .get(index + 1)
+                            .is_some_and(|token| is_relop(token.kind) || is_arith_op(token.kind));
+                    }
+                }
+                Terminal::End => return false,
+                _ => {}
+            }
+        }
+
+        false
+    }
+
+    fn parse_relation(&mut self) -> CompileResult<BoolAttr> {
         let left = self.parse_expr()?;
         let relop = self.parse_relop()?;
         let right = self.parse_expr()?;
@@ -269,30 +315,25 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_relop(&mut self) -> Result<String, String> {
+    fn parse_relop(&mut self) -> CompileResult<String> {
         let token = self.peek()?.clone();
-        match token.kind {
-            Terminal::Eq
-            | Terminal::Ne
-            | Terminal::Lt
-            | Terminal::Le
-            | Terminal::Gt
-            | Terminal::Ge => {
+        match is_relop(token.kind) {
+            true => {
                 self.advance();
                 Ok(token.lexeme)
             }
-            _ => Err(format!(
-                "语法制导翻译错误: 期待比较运算符，实际读到 `{}` (offset {})",
-                token.kind, token.offset
+            false => Err(CompileError::parse(
+                token.offset,
+                format!("期待比较运算符，实际读到 `{}`", token.kind),
             )),
         }
     }
 
-    fn parse_expr(&mut self) -> Result<ExprAttr, String> {
+    fn parse_expr(&mut self) -> CompileResult<ExprAttr> {
         self.parse_expr_bp(0)
     }
 
-    fn parse_expr_bp(&mut self, min_bp: u8) -> Result<ExprAttr, String> {
+    fn parse_expr_bp(&mut self, min_bp: u8) -> CompileResult<ExprAttr> {
         let mut left = self.parse_expr_atom()?;
 
         loop {
@@ -324,7 +365,7 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    fn parse_expr_atom(&mut self) -> Result<ExprAttr, String> {
+    fn parse_expr_atom(&mut self) -> CompileResult<ExprAttr> {
         match self.peek()?.kind {
             Terminal::Id => {
                 let token = self.expect_terminal(Terminal::Id)?;
@@ -346,18 +387,32 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 let token = self.peek()?;
-                Err(format!(
-                    "语法制导翻译错误: 非法表达式起始符 `{}` (offset {})",
-                    token.kind, token.offset
+                Err(CompileError::parse(
+                    token.offset,
+                    format!("非法表达式起始符 `{}`", token.kind),
                 ))
             }
         }
     }
 }
 
-pub fn parse_program(tokens: &[Token]) -> Result<CodeGen, String> {
+fn is_relop(kind: Terminal) -> bool {
+    matches!(
+        kind,
+        Terminal::Eq | Terminal::Ne | Terminal::Lt | Terminal::Le | Terminal::Gt | Terminal::Ge
+    )
+}
+
+fn is_arith_op(kind: Terminal) -> bool {
+    matches!(
+        kind,
+        Terminal::Plus | Terminal::Minus | Terminal::Star | Terminal::Slash
+    )
+}
+
+pub fn parse_program(tokens: &[Token]) -> CompileResult<CodeGen> {
     if tokens.is_empty() {
-        return Err("语法制导翻译错误: 输入 token 序列为空".into());
+        return Err(CompileError::parse_without_offset("输入 token 序列为空"));
     }
 
     let mut parser = Parser::new(tokens);
@@ -365,9 +420,9 @@ pub fn parse_program(tokens: &[Token]) -> Result<CodeGen, String> {
     Ok(parser.codegen)
 }
 
-pub fn parse_assignment(tokens: &[Token]) -> Result<CodeGen, String> {
+pub fn parse_assignment(tokens: &[Token]) -> CompileResult<CodeGen> {
     if tokens.is_empty() {
-        return Err("语法制导翻译错误: 输入 token 序列为空".into());
+        return Err(CompileError::parse_without_offset("输入 token 序列为空"));
     }
 
     let mut parser = Parser::new(tokens);
@@ -376,9 +431,9 @@ pub fn parse_assignment(tokens: &[Token]) -> Result<CodeGen, String> {
     Ok(parser.codegen)
 }
 
-pub fn parse_bool(tokens: &[Token]) -> Result<BoolParseOutput, String> {
+pub fn parse_bool(tokens: &[Token]) -> CompileResult<BoolParseOutput> {
     if tokens.is_empty() {
-        return Err("语法制导翻译错误: 输入 token 序列为空".into());
+        return Err(CompileError::parse_without_offset("输入 token 序列为空"));
     }
 
     let mut parser = Parser::new(tokens);
@@ -392,7 +447,7 @@ pub fn parse_bool(tokens: &[Token]) -> Result<BoolParseOutput, String> {
 #[cfg(test)]
 mod tests {
     use super::{parse_assignment, parse_bool, parse_program};
-    use crate::lexer::tokenize;
+    use crate::{error::CompileError, lexer::tokenize};
 
     fn assign_quad_lines(input: &str) -> Vec<String> {
         let tokens = tokenize(input).expect("tokenize should succeed");
@@ -460,7 +515,13 @@ mod tests {
         let tokens = tokenize("a = b + ;").expect("tokenize should succeed");
         let err = parse_assignment(&tokens).expect_err("parse should fail");
 
-        assert!(err.contains("非法表达式起始符"));
+        assert_eq!(
+            err,
+            CompileError::Parse {
+                offset: Some(8),
+                message: "非法表达式起始符 `;`".into(),
+            }
+        );
     }
 
     #[test]
@@ -468,7 +529,7 @@ mod tests {
         let tokens = tokenize("a = b + c; x = a * d;").expect("tokenize should succeed");
         let err = parse_assignment(&tokens).expect_err("parse should fail");
 
-        assert!(err.contains("期待 `#`"));
+        assert!(err.to_string().contains("期待 `#`"));
     }
 
     #[test]
@@ -584,7 +645,7 @@ mod tests {
         let tokens = tokenize("{ a = b + c;").expect("tokenize should succeed");
         let err = parse_program(&tokens).expect_err("parse should fail");
 
-        assert!(err.contains("期待 `}`"));
+        assert!(err.to_string().contains("期待 `}`"));
     }
 
     #[test]
@@ -611,6 +672,53 @@ mod tests {
         );
         assert_eq!(tc, vec![2]);
         assert_eq!(fc, vec![3]);
+    }
+
+    #[test]
+    fn test_parse_bool_relation_with_parenthesized_left_expr() {
+        let (quads, tc, fc) = bool_quads_and_attr("(a + b) < c");
+
+        assert_eq!(
+            quads,
+            vec!["(+, a, b, t1)", "(j<, t1, c, _)", "(j, _, _, _)"]
+        );
+        assert_eq!(tc, vec![1]);
+        assert_eq!(fc, vec![2]);
+    }
+
+    #[test]
+    fn test_parse_bool_relation_with_parenthesized_exprs() {
+        let (quads, tc, fc) = bool_quads_and_attr("(a + b) < (c * d)");
+
+        assert_eq!(
+            quads,
+            vec![
+                "(+, a, b, t1)",
+                "(*, c, d, t2)",
+                "(j<, t1, t2, _)",
+                "(j, _, _, _)",
+            ]
+        );
+        assert_eq!(tc, vec![2]);
+        assert_eq!(fc, vec![3]);
+    }
+
+    #[test]
+    fn test_parse_bool_true_literal() {
+        let (quads, tc, fc) = bool_quads_and_attr("true");
+
+        assert_eq!(quads, vec!["(j, _, _, _)"]);
+        assert_eq!(tc, vec![0]);
+        assert_eq!(fc, Vec::<usize>::new());
+    }
+
+    #[test]
+    fn test_parse_bool_false_literal() {
+        let (quads, tc, fc) = bool_quads_and_attr("false");
+
+        assert_eq!(quads, vec!["(j, _, _, _)"]);
+        assert_eq!(tc, Vec::<usize>::new());
+        assert_eq!(fc, vec![0]);
     }
 
     #[test]
@@ -740,10 +848,22 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_bool_literal_short_circuit() {
+        let (quads, tc, fc) = bool_quads_and_attr("not false and x >= 1");
+
+        assert_eq!(
+            quads,
+            vec!["(j, _, _, 1)", "(j>=, x, 1, _)", "(j, _, _, _)"]
+        );
+        assert_eq!(tc, vec![1]);
+        assert_eq!(fc, vec![2]);
+    }
+
+    #[test]
     fn test_parse_bool_relation_error() {
         let tokens = tokenize("a + b").expect("tokenize should succeed");
         let err = parse_bool(&tokens).expect_err("parse should fail");
 
-        assert!(err.contains("期待比较运算符"));
+        assert!(err.to_string().contains("期待比较运算符"));
     }
 }

@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::error::{CompileError, CompileResult};
+
 /// 普通操作数：变量、数字、临时变量，或四元组输出中的占位符 `_`。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Operand {
@@ -27,7 +29,6 @@ impl fmt::Display for Operand {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum JumpTarget {
     Pending,
-    #[allow(dead_code)]
     Target(usize),
 }
 
@@ -147,20 +148,18 @@ impl CodeGen {
         vec![index]
     }
 
-    #[allow(dead_code)]
     pub fn merge(mut left: Vec<usize>, right: Vec<usize>) -> Vec<usize> {
         left.extend(right);
         left
     }
 
     /// 将链中所有记录的四元组都回填（跳转地址）
-    #[allow(dead_code)]
-    pub fn backpatch(&mut self, list: &[usize], target: usize) -> Result<(), String> {
+    pub fn backpatch(&mut self, list: &[usize], target: usize) -> CompileResult<()> {
         for &index in list {
             let quad = self
                 .quads
                 .get_mut(index)
-                .ok_or_else(|| format!("回填错误: 四元组编号 {index} 不存在"))?;
+                .ok_or_else(|| CompileError::codegen(format!("四元组编号 {index} 不存在")))?;
             match quad {
                 Quad::Jump {
                     target: jump_target,
@@ -172,7 +171,9 @@ impl CodeGen {
                     *jump_target = JumpTarget::Target(target);
                 }
                 Quad::Binary { .. } | Quad::Assign { .. } => {
-                    return Err(format!("回填错误: 四元组编号 {index} 不是跳转指令"));
+                    return Err(CompileError::codegen(format!(
+                        "四元组编号 {index} 不是跳转指令"
+                    )));
                 }
             }
         }
@@ -254,7 +255,12 @@ mod tests {
         });
 
         let err = codegen.backpatch(&[index], 3).unwrap_err();
-        assert!(err.contains("不是跳转指令"));
+        assert_eq!(
+            err,
+            CompileError::Codegen {
+                message: "四元组编号 0 不是跳转指令".into(),
+            }
+        );
     }
 
     #[test]

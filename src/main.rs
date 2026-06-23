@@ -1,31 +1,39 @@
 mod codegen;
+mod error;
 mod lexer;
 mod sd_parser;
 mod symbol;
 
 use codegen::{format_bool_result, format_quads};
+use error::{CompileError, CompileResult};
 use lexer::{format_tokens, tokenize};
 use sd_parser::{parse_assignment, parse_bool, parse_program};
 
 fn main() {
     match run_cli(std::env::args().skip(1)) {
         Ok(output) => print!("{output}"),
-        Err(err) => eprintln!("{err}"),
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
     }
 }
 
-fn run_cli<I>(args: I) -> Result<String, String>
+fn run_cli<I>(args: I) -> CompileResult<String>
 where
     I: IntoIterator<Item = String>,
 {
     let mut args = args.into_iter();
     let Some(mode) = args.next() else {
-        return Err(usage());
+        return Err(CompileError::cli(usage()));
     };
     let input = args.collect::<Vec<_>>().join(" ");
 
     if input.is_empty() {
-        return Err(format!("错误: 缺少输入源码\n{}", usage()));
+        return Err(CompileError::cli(format!(
+            "错误: 缺少输入源码\n{}",
+            usage()
+        )));
     }
 
     match mode.as_str() {
@@ -33,27 +41,30 @@ where
         "assign" => render_assign(&input),
         "bool" => render_bool(&input),
         "tokens" => render_tokens(&input),
-        _ => Err(format!("错误: 未知模式 `{mode}`\n{}", usage())),
+        _ => Err(CompileError::cli(format!(
+            "错误: 未知模式 `{mode}`\n{}",
+            usage()
+        ))),
     }
 }
 
-fn render_tokens(input: &str) -> Result<String, String> {
+fn render_tokens(input: &str) -> CompileResult<String> {
     tokenize(input).map(|tokens| format!("{}\n", format_tokens(&tokens)))
 }
 
-fn render_assign(input: &str) -> Result<String, String> {
+fn render_assign(input: &str) -> CompileResult<String> {
     tokenize(input)
         .and_then(|tokens| parse_assignment(&tokens))
         .map(|codegen| format_quads(&codegen))
 }
 
-fn render_program(input: &str) -> Result<String, String> {
+fn render_program(input: &str) -> CompileResult<String> {
     tokenize(input)
         .and_then(|tokens| parse_program(&tokens))
         .map(|codegen| format_quads(&codegen))
 }
 
-fn render_bool(input: &str) -> Result<String, String> {
+fn render_bool(input: &str) -> CompileResult<String> {
     tokenize(input).and_then(|tokens| {
         parse_bool(&tokens).map(|output| format_bool_result(&output.codegen, &output.attr))
     })
@@ -138,15 +149,15 @@ mod tests {
     fn test_run_cli_reports_missing_input() {
         let err = run_cli(["program".to_string()]).unwrap_err();
 
-        assert!(err.contains("缺少输入源码"));
-        assert!(err.contains("cargo run -- program"));
+        assert!(err.to_string().contains("缺少输入源码"));
+        assert!(err.to_string().contains("cargo run -- program"));
     }
 
     #[test]
     fn test_run_cli_reports_unknown_mode() {
         let err = run_cli(["expr".to_string(), "a = b;".to_string()]).unwrap_err();
 
-        assert!(err.contains("未知模式 `expr`"));
-        assert!(err.contains("cargo run -- program"));
+        assert!(err.to_string().contains("未知模式 `expr`"));
+        assert!(err.to_string().contains("cargo run -- program"));
     }
 }
