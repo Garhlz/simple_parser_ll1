@@ -97,16 +97,21 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn parse_assignment_stmt(&mut self) -> CompileResult<()> {
+    fn parse_assignment_core(&mut self) -> CompileResult<()> {
         let id = self.expect_terminal(Terminal::Id)?;
         self.expect_terminal(Terminal::Assign)?;
         let expr = self.parse_expr()?;
-        self.expect_terminal(Terminal::Semicolon)?;
 
         self.codegen.emit(Quad::Assign {
             src: expr.place,
             dest: Operand::name(id.lexeme),
         });
+        Ok(())
+    }
+
+    fn parse_assignment_stmt(&mut self) -> CompileResult<()> {
+        self.parse_assignment_core()?;
+        self.expect_terminal(Terminal::Semicolon)?;
         Ok(())
     }
 
@@ -426,7 +431,10 @@ pub fn parse_assignment(tokens: &[Token]) -> CompileResult<CodeGen> {
     }
 
     let mut parser = Parser::new(tokens);
-    parser.parse_assignment_stmt()?;
+    parser.parse_assignment_core()?;
+    if matches!(parser.peek()?.kind, Terminal::Semicolon) {
+        parser.expect_terminal(Terminal::Semicolon)?;
+    }
     parser.expect_terminal(Terminal::End)?;
     Ok(parser.codegen)
 }
@@ -492,13 +500,21 @@ mod tests {
     #[test]
     fn test_parse_assignment_expr_precedence() {
         assert_eq!(
-            assign_quad_lines("a = b + c * e / g;"),
+            assign_quad_lines("a = b + c * e / g"),
             vec![
                 "(*, c, e, t1)",
                 "(/, t1, g, t2)",
                 "(+, b, t2, t3)",
                 "(=, t3, _, a)",
             ]
+        );
+    }
+
+    #[test]
+    fn test_parse_assignment_accepts_optional_semicolon() {
+        assert_eq!(
+            assign_quad_lines("a=b+c*e/g;"),
+            assign_quad_lines("a=b+c*e/g")
         );
     }
 

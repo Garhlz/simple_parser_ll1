@@ -59,10 +59,10 @@ Quadruples:
 
 ### 实验演示
 
-生成单条算术赋值语句四元组：
+生成单条算术赋值语句四元组，末尾分号可省略：
 
 ```bash
-cargo run -- assign "a = b + c * e / g;"
+cargo run -- assign "a = b + c * e / g"
 ```
 
 示例输出：

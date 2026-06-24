@@ -74,7 +74,7 @@ fn usage() -> String {
     [
         "用法:",
         "  cargo run -- program \"a = b + c; x = a * d;\"",
-        "  cargo run -- assign \"a = b + c * e / g;\"",
+        "  cargo run -- assign \"a = b + c * e / g\"",
         "  cargo run -- bool \"a < b\"",
         "  cargo run -- tokens \"a = b + c * e / g;\"",
     ]
@@ -102,7 +102,7 @@ mod tests {
     #[test]
     fn test_render_assign_mode() {
         assert_eq!(
-            render_assign("a = b + c * e / g;").unwrap(),
+            render_assign("a = b + c * e / g").unwrap(),
             concat!(
                 "Quadruples:\n",
                 "0: (*, c, e, t1)\n",
